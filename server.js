@@ -1,8 +1,9 @@
 const express = require('express');
 const fs = require('fs');
-const { default: makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, DisconnectReason } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const QRCode = require('qrcode');
+const bot = require('./bot');
 const app = express();
 const OWNER_NUMBER = '263776196948';
 const OWNER_NAME = 'POUNDZ';
@@ -37,22 +38,135 @@ let cur='',sess='',timerInt=null,secLeft=0;
 function show(m){document.getElementById('t1').classList.toggle('active',m==1);document.getElementById('t2').classList.toggle('active',m==2);document.getElementById('pairBox').style.display=m==1?'block':'none';document.getElementById('qrBox').style.display=m==2?'block':'none'}
 function doCopy(t){let ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();try{document.execCommand('copy')}catch(e){}document.body.removeChild(ta);if(navigator.clipboard)navigator.clipboard.writeText(t);alert('✅ Copied!')}
 function startTimer(){clearInterval(timerInt);secLeft=120;timerInt=setInterval(()=>{secLeft--;let m=Math.floor(secLeft/60),s=secLeft%60;document.getElementById('timer').innerText='⏳ Valid: '+m+':'+(s<10?'0':'')+s+' - Auto-refreshing...';if(secLeft<=0){clearInterval(timerInt);getCode(true)}},1000)}
-async function getCode(r){let n=document.getElementById('n').value;if(!n) return alert('Enter number first');if(!r){document.getElementById('code').innerText='⚡ Connecting...';document.getElementById('status').innerText='Do NOT close page...';document.getElementById('getBtn').innerText='⏳ GENERATING...'}let res=await fetch('/pair?number='+n+'&t='+Date.now());let d=await res.json();cur=d.code||'';document.getElementById('code').innerText=cur;document.getElementById('getBtn').innerText='🔗 GET CODE';document.getElementById('copyBtn').style.display=cur&&cur.length<10?'block':'none';if(!r){startTimer();checkSession(n)}}
+async function getCode(r){let n=document.getElementById('n').value;if(!n) return alert('Enter number first');if(!r){document.getElementById('code').innerText='⚡ Connecting...';document.getElementById('status').innerText='Do NOT close page...';document.getElementById('getBtn').innerText='⏳ GENERATING...'}let res=await fetch('/pair?number='+n+'&t='+Date.now());let d=await res.json();if(d.error){document.getElementById('code').innerText='';document.getElementById('status').innerText='❌ '+d.error;document.getElementById('getBtn').innerText='🔗 GET CODE';return}cur=d.code||'';document.getElementById('code').innerText=cur;document.getElementById('getBtn').innerText='🔗 GET CODE';document.getElementById('copyBtn').style.display=cur&&cur.length<10?'block':'none';if(!r){startTimer();checkSession(n)}}
 async function checkSession(n){for(let i=0;i<30;i++){await new Promise(r=>setTimeout(r,4000));let r=await fetch('/session?number='+n);let d=await r.json();if(d.session){sess=d.session;clearInterval(timerInt);document.getElementById('timer').innerText='✅ PAIRED!';document.getElementById('status').innerText='✅ TRUE SESSION sent to your WhatsApp';document.getElementById('sessionBox').style.display='block';document.getElementById('sessionBox').innerText=sess;document.getElementById('copySess').style.display='block';break}}}
 async function getQR(){document.getElementById('qrMsg').innerText='⏳ Generating...';let r=await fetch('/qr');let d=await r.json();if(d.qr){document.getElementById('qrImg').src=d.qr;document.getElementById('qrImg').style.display='block';document.getElementById('qrMsg').innerText='Scan now - expires in 20s'}else{document.getElementById('qrMsg').innerText=d.error||'Try again'}}
 function copyCode(){doCopy(cur)} function copySess(){doCopy(sess)}
 </script></body></html>`;
 app.get('/',(req,res)=>res.send(HTML));
-let sessions={},socks={};
-async function createSock(num){
-  if(socks[num]) return socks[num];
-  const {state,saveCreds}=await useMultiFileAuthState('./auth-'+num);
+
+const PORT = process.env.PORT || 3000;
+const MAX_PENDING = 20;
+const sessions = {}, socks = {}, pending = new Set();
+const authDir = id => './auth-' + id;
+const sleep = ms => new Promise(r=>setTimeout(r,ms));
+
+function isLinked(id){
+  try{ return !!JSON.parse(fs.readFileSync(authDir(id)+'/creds.json','utf8')).me; }catch(e){ return false; }
+}
+function buildSession(id){
+  return 'POUNDZ-XMD~' + Buffer.from(fs.readFileSync(authDir(id)+'/creds.json','utf8')).toString('base64');
+}
+function cleanupIfUnpaired(id, sock){
+  if(sock.authState.creds.me) return;
+  if(socks[id] && socks[id] !== sock) return;
+  try{ sock.end(undefined); }catch(e){}
+  if(socks[id] === sock) delete socks[id];
+  pending.delete(id);
+  fs.rmSync(authDir(id), {recursive:true, force:true});
+}
+
+// One socket per session id. Every linked session runs its own copy of the bot commands.
+async function createSock(id, opts={}){
+  if(socks[id]) return socks[id];
+  const {state,saveCreds}=await useMultiFileAuthState(authDir(id));
   const {version}=await fetchLatestBaileysVersion();
   const sock=makeWASocket({version,logger:pino({level:'silent'}),auth:state,printQRInTerminal:false,browser:['POUNDZ-XMD','Chrome','1.0'],connectTimeoutMs:10000,keepAliveIntervalMs:10000});
-  socks[num]=sock; sock.ev.on('creds.update',saveCreds);
+  socks[id]=sock; sock.ev.on('creds.update',saveCreds);
+  bot.attach(sock);
   sock.ev.on('connection.update',async(u)=>{
-    if(u.connection==='close') delete socks[num];
+    if(u.qr && opts.onQR) opts.onQR(u.qr);
+    if(u.connection==='close'){
+      if(socks[id] && socks[id]!==sock) return; // a newer socket already replaced this one
+      delete socks[id];
+      const reason=u.lastDisconnect?.error?.output?.statusCode;
+      if(reason===DisconnectReason.loggedOut){
+        console.log('Logged out:',id);
+        pending.delete(id); delete sessions[id];
+        fs.rmSync(authDir(id),{recursive:true,force:true});
+      }else if(state.creds.me && reason!==DisconnectReason.connectionReplaced){
+        // includes the restart WhatsApp forces right after pairing (515)
+        setTimeout(()=>createSock(id).catch(e=>console.log('reconnect error',id,e.message)),3000);
+      }
+    }
     if(u.connection==='open'){
+      console.log('✅ Session connected:',id);
+      if(!pending.has(id)) return;
+      pending.delete(id);
       try{
-        await new Promise(r=>setTimeout(r,1500));
-        const cred
+        await sleep(1500);
+        const session=buildSession(id);
+        const num=sock.user.id.split(':')[0].split('@')[0];
+        sessions[num]=session;
+        setTimeout(()=>{ delete sessions[num]; },5*60*1000);
+        await sock.sendMessage(num+'@s.whatsapp.net',{text:'✅ *POUNDZ-XMD CONNECTED*\n\nYour SESSION ID is below. Keep it private!\n\n> POWERED BY POUNDZ-XMD'});
+        await sock.sendMessage(num+'@s.whatsapp.net',{text:session});
+      }catch(e){ console.log('session send error',e.message); }
+    }
+  });
+  return sock;
+}
+
+app.get('/pair',async(req,res)=>{
+  const num=String(req.query.number||'').replace(/\D/g,'');
+  if(num.length<8||num.length>15) return res.json({error:'Invalid number. Use country code, no + sign'});
+  try{
+    if(isLinked(num)) return res.json({error:'This number is already linked'});
+    if(pending.size>=MAX_PENDING && !pending.has(num)) return res.json({error:'Server busy, try again in a minute'});
+    if(socks[num]){ try{socks[num].end(undefined);}catch(e){} delete socks[num]; }
+    fs.rmSync(authDir(num),{recursive:true,force:true});
+    pending.add(num);
+    const sock=await createSock(num);
+    setTimeout(()=>cleanupIfUnpaired(num,sock),3*60*1000);
+    await sleep(2000);
+    const code=await sock.requestPairingCode(num);
+    res.json({code:(code.match(/.{1,4}/g)||[code]).join('-')});
+  }catch(e){
+    console.log('pair error',e.message);
+    pending.delete(num);
+    res.json({error:'Could not get code, try again'});
+  }
+});
+
+app.get('/session',(req,res)=>{
+  const num=String(req.query.number||'').replace(/\D/g,'');
+  const s=sessions[num];
+  if(s) delete sessions[num]; // one-time delivery
+  res.json({session:s||null});
+});
+
+app.get('/qr',async(req,res)=>{
+  const id='qr-'+Date.now().toString(36);
+  try{
+    if(pending.size>=MAX_PENDING) return res.json({error:'Server busy, try again in a minute'});
+    pending.add(id);
+    let gotQR; const qrP=new Promise(r=>{gotQR=r});
+    const sock=await createSock(id,{onQR:gotQR});
+    setTimeout(()=>cleanupIfUnpaired(id,sock),2*60*1000);
+    const qr=await Promise.race([qrP,sleep(20000).then(()=>null)]);
+    if(!qr){ cleanupIfUnpaired(id,sock); return res.json({error:'Could not generate QR, try again'}); }
+    res.json({qr:await QRCode.toDataURL(qr)});
+  }catch(e){
+    console.log('qr error',e.message);
+    pending.delete(id);
+    res.json({error:'Could not generate QR, try again'});
+  }
+});
+
+// On startup, bring back every saved session
+async function bootAll(){
+  bot.loadEnvSession();
+  for(const d of fs.readdirSync('.')){
+    if(!d.startsWith('auth-')) continue;
+    const id=d.slice(5);
+    if(!isLinked(id)){ fs.rmSync(d,{recursive:true,force:true}); continue; } // leftover from an unfinished pairing
+    createSock(id).catch(e=>console.log('boot error',id,e.message));
+    await sleep(1500);
+  }
+  console.log('Active sessions:',Object.keys(socks).length);
+}
+
+process.on('unhandledRejection',e=>console.log('unhandledRejection',e&&e.message||e));
+process.on('uncaughtException',e=>console.log('uncaughtException',e&&e.message||e));
+
+app.listen(PORT,()=>{ console.log('POUNDZ-XMD multi-session server on port',PORT); bootAll(); });
