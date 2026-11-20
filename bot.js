@@ -7,42 +7,8 @@ const OWNER = '263776196948';
 const PREFIX = '.';
 const BOT_NAME = 'POUNDZ-XMD';
 
-async function startBot(){
-  // Get SESSION_ID from Render Env
-  let session = process.env.SESSION_ID || '';
-  if(session){
-    // Decode POUNDZ-XMD~ base64 to creds.json
-    try{
-      const b64 = session.split('~')[1] || session;
-      const creds = Buffer.from(b64, 'base64').toString();
-      if(!fs.existsSync('./auth-bot')) fs.mkdirSync('./auth-bot', {recursive:true});
-      fs.writeFileSync('./auth-bot/creds.json', creds);
-      console.log('✅ SESSION_ID loaded');
-    }catch(e){ console.log('Session decode error', e.message); }
-  }
-
-  const { state, saveCreds } = await useMultiFileAuthState('./auth-bot');
-  const { version } = await fetchLatestBaileysVersion();
-  const sock = makeWASocket({
-    version,
-    logger: pino({level:'silent'}),
-    auth: state,
-    printQRInTerminal: false,
-    browser: [BOT_NAME, 'Chrome', '1.0']
-  });
-
-  sock.ev.on('creds.update', saveCreds);
-
-  sock.ev.on('connection.update', (u)=>{
-    const { connection, lastDisconnect } = u;
-    if(connection === 'open') console.log('✅ POUNDZ-XMD CONNECTED!');
-    if(connection === 'close'){
-      const reason = lastDisconnect?.error?.output?.statusCode;
-      console.log('Disconnected', reason);
-      if(reason !== DisconnectReason.loggedOut) startBot();
-    }
-  });
-
+// Attaches the command handler to ONE socket. Called once per session.
+function attach(sock){
   sock.ev.on('messages.upsert', async ({messages})=>{
     const m = messages[0];
     if(!m.message || m.key.fromMe) return;
@@ -81,4 +47,53 @@ async function startBot(){
     }
   });
 }
-startBot();
+
+// SESSION_ID env: one or many session ids separated by commas.
+// First -> ./auth-bot (same as before), others -> ./auth-bot2, ./auth-bot3 ...
+function loadEnvSession(){
+  const list = (process.env.SESSION_ID || '').split(',').map(s=>s.trim()).filter(Boolean);
+  list.forEach((session, i)=>{
+    try{
+      const dir = './auth-bot' + (i ? i+1 : '');
+      // Only write if missing, otherwise we'd overwrite refreshed creds on every restart
+      if(fs.existsSync(dir + '/creds.json')) return;
+      const b64 = session.split('~')[1] || session;
+      const creds = Buffer.from(b64, 'base64').toString();
+      JSON.parse(creds); // validate
+      fs.mkdirSync(dir, {recursive:true});
+      fs.writeFileSync(dir + '/creds.json', creds);
+      console.log('✅ SESSION_ID loaded ->', dir);
+    }catch(e){ console.log('Session decode error', e.message); }
+  });
+}
+
+// Single-session mode (node bot.js). For multi-session run: npm start
+async function startBot(){
+  loadEnvSession();
+  const { state, saveCreds } = await useMultiFileAuthState('./auth-bot');
+  const { version } = await fetchLatestBaileysVersion();
+  const sock = makeWASocket({
+    version,
+    logger: pino({level:'silent'}),
+    auth: state,
+    printQRInTerminal: false,
+    browser: [BOT_NAME, 'Chrome', '1.0']
+  });
+
+  sock.ev.on('creds.update', saveCreds);
+
+  sock.ev.on('connection.update', (u)=>{
+    const { connection, lastDisconnect } = u;
+    if(connection === 'open') console.log('✅ POUNDZ-XMD CONNECTED!');
+    if(connection === 'close'){
+      const reason = lastDisconnect?.error?.output?.statusCode;
+      console.log('Disconnected', reason);
+      if(reason !== DisconnectReason.loggedOut) startBot();
+    }
+  });
+
+  attach(sock);
+}
+
+module.exports = { attach, loadEnvSession, startBot, BOT_NAME };
+if(require.main === module) startBot();
