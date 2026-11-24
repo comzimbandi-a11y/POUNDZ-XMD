@@ -19,6 +19,7 @@ const settings = require('./lib/settings');
 const registry = require('./lib/registry');
 const { num, unwrap, getBody, getQuoted } = require('./lib/utils');
 const { loadSession } = require('./lib/sessionLoader');
+const { startServer } = require('./lib/server');
 
 process.on('uncaughtException', (e) => console.error('Uncaught exception:', e));
 process.on('unhandledRejection', (e) => console.error('Unhandled rejection:', e));
@@ -198,6 +199,8 @@ async function start() {
     }
   });
 }
+
+startServer(config.BOT_NAME);
 
 (async () => {
   // Restore login from SESSION_ID (only if one is set and no saved session exists)
