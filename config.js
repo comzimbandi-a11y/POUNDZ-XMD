@@ -1,5 +1,8 @@
 require('dotenv').config();
 
+// accepts owner/repo or a full GitHub URL (with or without .git) and returns owner/repo
+const repoName = (v) => (v || '').trim().replace(/\/+$/, '').replace(/\.git$/i, '').replace(/^(https?:\/\/)?(www\.)?github\.com\//i, '');
+
 const list = (v) => (v || '').split(',').map((s) => s.replace(/\D/g, '')).filter(Boolean);
 
 module.exports = {
@@ -9,7 +12,7 @@ module.exports = {
   PAIR_NUMBER: (process.env.PAIR_NUMBER || '').replace(/\D/g, ''),
   TIME_ZONE: process.env.TIME_ZONE || 'Africa/Nairobi',
   // Self-update from YOUR repo (see .update command)
-  UPDATE_REPO: (process.env.UPDATE_REPO || 'https://github.com/comzimbandi-a11y/POUNDZ-XMD').trim(),       // owner/repo
+  UPDATE_REPO: repoName(process.env.UPDATE_REPO || 'comzimbandi-a11y/POUNDZ-XMD'), // owner/repo
   UPDATE_BRANCH: (process.env.UPDATE_BRANCH || 'main').trim(),
   GITHUB_TOKEN: (process.env.GITHUB_TOKEN || '').trim(),      // only for private repos
   AUTO_UPDATE: (process.env.AUTO_UPDATE || 'off').toLowerCase(), // on = pull latest at every boot
