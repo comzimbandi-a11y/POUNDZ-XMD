@@ -1,3 +1,4 @@
+
 const { cmd, commands } = require('../lib/registry');
 const config = require('../config');
 const settings = require('../lib/settings');
@@ -29,18 +30,82 @@ cmd({ pattern: 'owner', desc: 'Show the bot owner', category: 'main' },
 cmd({ pattern: 'menu', alias: ['help', 'commands'], desc: 'Show all commands', category: 'main' },
   async ({ reply, prefix }) => {
     const groups = {};
-    for (const c of commands) (groups[c.category] ||= []).push(c);
-    const order = ['main', 'group', 'tools', 'owner'];
+
+    for (const c of commands) {
+      const category = (c.category || 'other').toLowerCase();
+      (groups[category] ||= []).push(c);
+    }
+
+    const order = [
+      'main',
+      'download',
+      'search',
+      'ai',
+      'anime',
+      'fun',
+      'games',
+      'group',
+      'admin',
+      'tools',
+      'media',
+      'sticker',
+      'convert',
+      'utility',
+      'misc',
+      'owner'
+    ];
+
     const cats = Object.keys(groups).sort((a, b) => {
-      const ia = order.indexOf(a), ib = order.indexOf(b);
+      const ia = order.indexOf(a);
+      const ib = order.indexOf(b);
       return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
     });
 
-    let out = `╭━━〔 *${config.BOT_NAME}* 〕━━╮\n│ Prefix: ${prefix}\n│ Mode: ${settings.get('mode')}\n│ Commands: ${commands.length}\n╰━━━━━━━━━━━━━━╯\n`;
+    let out = `╭━━━〔 *${config.BOT_NAME}* 〕━━━┈⊷
+┃ ✦ *Owner:* ${config.OWNER_NAME}
+┃ ✦ *Prefix:* ${prefix}
+┃ ✦ *Version:* ${config.VERSION || '1.0.0'}
+┃ ✦ *Mode:* ${settings.get('mode')}
+┃ ✦ *Commands:* ${commands.length}
+╰━━━━━━━━━━━━━━━━━━━┈⊷
+`;
+
     for (const cat of cats) {
-      out += `\n*${cat.toUpperCase()}*\n`;
-      out += groups[cat].map((c) => `› ${prefix}${c.pattern}${c.desc ? ` — ${c.desc}` : ''}`).join('\n') + '\n';
+      const titles = {
+        main: 'MAIN MENU',
+        download: 'DOWNLOAD MENU',
+        search: 'SEARCH MENU',
+        ai: 'AI MENU',
+        anime: 'ANIME MENU',
+        fun: 'FUN MENU',
+        games: 'GAMES MENU',
+        group: 'GROUP MENU',
+        admin: 'ADMIN MENU',
+        tools: 'TOOLS MENU',
+        media: 'MEDIA MENU',
+        sticker: 'STICKER MENU',
+        convert: 'CONVERT MENU',
+        utility: 'UTILITY MENU',
+        misc: 'MISC MENU',
+        owner: 'OWNER MENU'
+      };
+
+      const title = titles[cat] || `${cat.toUpperCase()} MENU`;
+
+      out += `\n╭━━━〔 *${title}* 〕━━━┈⊷\n`;
+
+      out += groups[cat].map(c =>
+        `┃ ⌜ ${prefix}${c.pattern}${c.desc ? ` — ${c.desc}` : ''}`
+      ).join('\n');
+
+      out += '\n╰━━━━━━━━━━━━━━━━━━━┈⊷\n';
     }
-    out += `\n_Powered by ${config.BOT_NAME}_`;
+
+    out += `
+╭━━━〔 *SUPPORT* 〕━━━┈⊷
+┃ ✦ *Bot:* ${config.BOT_NAME}
+┃ ✦ *Status:* Online
+╰━━━━━━━━━━━━━━━━━━━┈⊷`;
+
     reply(out);
   });
