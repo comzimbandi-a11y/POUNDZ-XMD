@@ -8,6 +8,11 @@ module.exports = {
   OWNER_NUMBERS: list(process.env.OWNER_NUMBER),
   PAIR_NUMBER: (process.env.PAIR_NUMBER || '').replace(/\D/g, ''),
   TIME_ZONE: process.env.TIME_ZONE || 'Africa/Nairobi',
+  // Self-update from YOUR repo (see .update command)
+  UPDATE_REPO: (process.env.UPDATE_REPO || 'https://github.com/comzimbandi-a11y/POUNDZ-XMD').trim(),       // owner/repo
+  UPDATE_BRANCH: (process.env.UPDATE_BRANCH || 'main').trim(),
+  GITHUB_TOKEN: (process.env.GITHUB_TOKEN || '').trim(),      // only for private repos
+  AUTO_UPDATE: (process.env.AUTO_UPDATE || 'off').toLowerCase(), // on = pull latest at every boot
   STICKER_PACK: process.env.STICKER_PACK || 'POUNDZ MD',
   STICKER_AUTHOR: process.env.STICKER_AUTHOR || 'Poundz',
 
