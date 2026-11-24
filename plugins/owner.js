@@ -61,3 +61,26 @@ cmd({ pattern: 'session', desc: 'Send your SESSION_ID to the bot chat (keep it s
     await conn.sendMessage(me, { text: encodeSessionId(fs.readFileSync(creds)) });
     reply('🔐 Sent to your own chat. It is a full login: never share it, and delete the message after saving it.');
   });
+
+cmd({ pattern: 'update', alias: ['upgrade'], desc: 'Install the latest version (.update check = look only)', category: 'owner', owner: true },
+  async ({ args, reply }) => {
+    const updater = require('../lib/updater');
+    const short = (s) => (s || 'unknown').slice(0, 7);
+    const v = (x) => (x ? `v${x}` : 'unknown');
+    try {
+      const info = await updater.checkUpdate();
+      if (!info.hasUpdate) {
+        return reply(`✅ Already on the latest version\n📦 ${v(info.currentVersion)} (${short(info.current)})`);
+      }
+      const change = `📦 ${v(info.currentVersion)} → ${v(info.latestVersion)}\n🔖 ${short(info.current)} → ${short(info.latest.sha)}\n📝 ${info.latest.message}`;
+      if (args[0]?.toLowerCase() === 'check') {
+        return reply(`🆕 Update available\n\n${change}\n\nSend .update to install.`);
+      }
+      await reply(`⬇️ Updating...\n\n${change}`);
+      const r = await updater.applyUpdate(info.latest);
+      await reply(`✅ Updated to ${v(r.newVersion)}${r.depsInstalled ? ' (dependencies reinstalled)' : ''}\nRestarting...`);
+      setTimeout(() => process.exit(0), 1500); // the host / process manager brings it back up
+    } catch (e) {
+      reply(`❌ Update failed: ${e.message}`);
+    }
+  });
