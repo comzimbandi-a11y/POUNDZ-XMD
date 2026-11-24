@@ -93,7 +93,7 @@ cmd({ pattern: 'menu', alias: ['help', 'commands'], desc: 'Show all commands', c
       out += `\n╭━━━〔 *${title}* 〕━━━┈⊷\n`;
 
       out += groups[cat].map((c) =>
-        `┃ ⌜ ${prefix}${c.pattern}${c.desc ? ` — ${c.desc}` : ''}`
+        `┃ ⌜ ${prefix}${c.pattern}`
       ).join('\n');
 
       out += '\n╰━━━━━━━━━━━━━━━━━━━┈⊷\n';
