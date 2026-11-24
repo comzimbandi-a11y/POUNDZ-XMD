@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: poundz-md
+    runtime: node
+    plan: free            # free works, but see README (sleeps after 15 min without traffic)
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /
+    envVars:
+      - key: SESSION_ID
+        sync: false       # set in the Render dashboard, never commit it
+      - key: OWNER_NUMBER
+        sync: false
+      - key: PREFIX
+        value: "."
+      - key: MODE
+        value: public
